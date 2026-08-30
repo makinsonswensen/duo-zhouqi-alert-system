@@ -1,0 +1,57 @@
+# 多周期确认系统提醒 - 配置模板
+# 使用方法：复制本文件为 config.yaml，填入你的飞书机器人 Webhook 后运行
+# 策略：
+#   阶梯确认：1h(形态+EMA7/25+过滤) → 4h(形态+EMA7) → 8h(形态+EMA7) 方向一致递进
+#   直接4h：形态 + 收盘在EMA7之上/之下 + EMA7>EMA25/EMA7<EMA25（不依赖1h确认）
+#   直接8h：形态 + 收盘在EMA7之上/之下 + EMA7>EMA25/EMA7<EMA25（不依赖1h/4h确认）
+
+# 交易所配置（按优先级自动切换：binance → gateio → okx）
+exchange:
+  priority: ["binance", "gateio", "okx"]   # 顺序即优先级，出问题自动切下一个
+  market_type: swap                          # 永续合约
+  quote_currency: USDT                       # USDT 本位
+  top_n: 50                                  # 成交量前 50 交易对
+  # 可选代理（中国网络环境访问 Binance 可能需要，如 "http://127.0.0.1:7890"）
+  proxy: ""
+
+# 周期配置
+timeframes:
+  level1: "1h"      # 第一级：形态 + EMA7 + EMA25
+  level2: "4h"      # 第二级：形态 + EMA7
+  level3: "8h"      # 第三级：形态 + EMA7
+  ema:
+    level1: [7, 25] # 1h 双均线
+    level2: [7]     # 4h 单均线
+    level3: [7]     # 8h 单均线
+
+# 1h 信号过滤器（减少误报）
+filters:
+  ema_alignment: true      # ① EMA排列过滤：多头要求EMA7>EMA25，空头反之
+  ema_slope: true           # ② EMA斜率过滤：EMA7近N根斜率同向
+  ema_slope_lookback: 3     # 斜率回看根数
+
+# 直接周期筛选（不依赖前序周期确认，独立触发）
+direct_screening:
+  enable_4h: true            # 直接4h筛选：形态 + 收盘vs EMA7 + EMA7 vs EMA25
+  enable_8h: true            # 直接8h筛选：同上条件
+  alert_level_4h: 2          # 直接4h信号的报警级别（2=强烈报警）
+  alert_level_8h: 2          # 直接8h信号的报警级别（2=强烈报警）
+
+# 扫描触发时间：每根 1h K 线第 58 分钟触发
+schedule:
+  minute: 58        # 每小时第 58 分钟触发
+
+# K线数据
+ohlcv:
+  limit: 200        # 每次拉取的 K 线数量（EMA 计算需要足够历史）
+
+# 飞书报警
+feishu:
+  webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/你的飞书机器人Webhook"   # 飞书机器人 Webhook
+  summary_mode: true    # 汇总模式：一轮扫描的信号分类合并成一张卡片发送（false 则每个信号单独一张卡片）
+
+# 报警级别文案
+alert_levels:
+  1: "【普通报警】1h 信号确认"
+  2: "【强烈报警】双周期共振 / 直接4h·8h信号"
+  3: "【剧烈报警】1h+4h+8h 三周期共振"
