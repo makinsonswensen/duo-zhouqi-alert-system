@@ -15,6 +15,10 @@ EXCLUDE_SYMBOLS = {"USDC/USDT:USDT", "TUSD/USDT:USDT", "FDUSD/USDT:USDT",
                    "DAI/USDT:USDT", "BUSD/USDT:USDT", "USDP/USDT:USDT"}
 
 
+# 交易所 ID 别名（config 用名 → ccxt 类名），ccxt 里 Gate.io 的类是 "gate"
+EXCHANGE_ALIASES = {"gateio": "gate", "gate": "gate"}
+
+
 class ExchangeClient:
     """交易所客户端，支持多交易所自动故障切换"""
 
@@ -28,7 +32,7 @@ class ExchangeClient:
 
     def _create_client(self, exchange_id):
         """创建交易所客户端实例"""
-        exchange_class = getattr(ccxt, exchange_id)
+        exchange_class = getattr(ccxt, EXCHANGE_ALIASES.get(exchange_id, exchange_id))
         params = {
             "enableRateLimit": True,
             "timeout": 20000,
