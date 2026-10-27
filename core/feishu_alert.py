@@ -36,8 +36,10 @@ def _short_symbol(symbol):
 
 class FeishuAlert:
     def __init__(self, webhook_url=None):
-        # 优先级: 参数 > 环境变量 > 配置文件
-        self.webhook_url = (webhook_url or os.environ.get("FEISHU_WEBHOOK_URL") or "").strip()
+        # 优先级: 环境变量 > 参数 > 空
+        # （环境变量优先：云环境运行时 config.yaml 由脱敏模板生成，
+        #   其占位符不应覆盖真实 Secret）
+        self.webhook_url = (os.environ.get("FEISHU_WEBHOOK_URL") or webhook_url or "").strip()
         if not self.webhook_url:
             logger.warning("⚠️ 未配置飞书 Webhook，报警消息将只写入日志")
 
