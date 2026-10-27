@@ -1,0 +1,37 @@
+# GitHub Actions 定时扫描：每小时第 58 分触发一次扫描（替代本地常驻进程）
+# 手动测试：Actions 页面 → 多周期扫描 → Run workflow
+name: 多周期扫描
+
+on:
+  schedule:
+    - cron: "58 * * * *"   # 每小时 :58（UTC，与本地扫描逻辑一致：只看已收盘K线）
+  workflow_dispatch:         # 支持手动触发测试
+
+concurrency:
+  group: scan
+  cancel-in-progress: false  # 上一次没跑完就排队，不互相打断
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # 飞书 webhook 从仓库 Secrets 读取（Settings → Secrets and variables → Actions）
+      FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 生成运行时配置
+        # config.yaml 不入库（含 webhook），用脱敏模板生成；webhook 由环境变量注入
+        run: cp config.example.yaml config.yaml
+
+      - name: 执行扫描
+        run: python main.py --once
