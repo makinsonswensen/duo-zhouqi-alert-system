@@ -30,6 +30,17 @@ filters:
   ema_slope: true           # ② EMA斜率过滤：EMA7近N根斜率同向
   ema_slope_lookback: 3     # 斜率回看根数
 
+# 信号质量过滤器（作用于阶梯1h入口与直接4h/8h路径，4h/8h确认级不加）
+signal_filters:
+  volume:
+    enabled: true           # 成交量确认：放量形态才报警
+    ma_period: 20           # 均量周期（不含当根的前 N 根）
+    mult: 1.5               # 当根成交量 ≥ 均量 × 1.5
+  range:
+    enabled: true           # K线幅度过滤：过滤振幅过小的迷你K线形态
+    atr_period: 14          # ATR 周期（TR 简单平均，不含当根）
+    mult: 0.5               # 当根振幅 ≥ ATR × 0.5
+
 # 直接周期筛选（不依赖前序周期确认，独立触发）
 direct_screening:
   enable_4h: true            # 直接4h筛选：形态 + 收盘vs EMA7 + EMA7 vs EMA25
@@ -45,10 +56,9 @@ schedule:
 ohlcv:
   limit: 200        # 每次拉取的 K 线数量（EMA 计算需要足够历史）
 
-# 飞书报警
+# 飞书报警（一轮扫描的信号分类合并成一张卡片发送）
 feishu:
   webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/你的飞书机器人Webhook"   # 飞书机器人 Webhook
-  summary_mode: true    # 汇总模式：一轮扫描的信号分类合并成一张卡片发送（false 则每个信号单独一张卡片）
 
 # 报警级别文案
 alert_levels:

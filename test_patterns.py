@@ -70,5 +70,38 @@ noise = detect_patterns(make_df([(100,102,98,101),(101,103,99,102),(102,104,100,
 print(f"{'✅' if not noise else '❌'} 无形态不误报: {noise}")
 results.append(not noise)
 
+# ===== 信号质量过滤器自测 =====
+from core.signal_filters import volume_confirmed, range_confirmed
+
+def make_vdf(candles):
+    """candles: [(open, high, low, close, volume), ...]"""
+    rows = [{"timestamp": i * 3600000, "open": o, "high": h, "low": l, "close": c, "volume": v}
+            for i, (o, h, l, c, v) in enumerate(candles)]
+    return pd.DataFrame(rows)
+
+def run_filter(name, df, fn, expect, **kw):
+    ok, detail = fn(df, **kw)
+    passed = (ok == expect)
+    print(f"{'✅' if passed else '❌'} {name}: 期望通过={expect} 实际={ok} 详情={detail}")
+    return passed
+
+# 25 根基准K线：振幅≈2（ATR≈2），成交量=100
+base5 = [(100 + i, 101.5 + i, 99.5 + i, 101 + i, 100) for i in range(25)]
+
+# 放量（200 ≥ 1.5×100）应通过；缩量（100 < 150）应拦截
+results.append(run_filter("成交量确认·放量通过",
+    make_vdf(base5[:-1] + [(124, 125.5, 123.5, 125, 200)]), volume_confirmed, True,
+    ma_period=20, mult=1.5))
+results.append(run_filter("成交量确认·缩量拦截",
+    make_vdf(base5), volume_confirmed, False, ma_period=20, mult=1.5))
+
+# 大振幅（8 ≥ 0.5×ATR≈1）应通过；小振幅（0.4 < 1）应拦截
+results.append(run_filter("K线幅度·大振幅通过",
+    make_vdf(base5[:-1] + [(124, 129, 121, 125, 100)]), range_confirmed, True,
+    atr_period=14, mult=0.5))
+results.append(run_filter("K线幅度·小振幅拦截",
+    make_vdf(base5[:-1] + [(124.8, 125.2, 124.8, 125, 100)]), range_confirmed, False,
+    atr_period=14, mult=0.5))
+
 print(f"\n总结果: {sum(results)}/{len(results)} 通过")
 sys.exit(0 if all(results) else 1)

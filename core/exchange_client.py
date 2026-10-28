@@ -105,12 +105,6 @@ class ExchangeClient:
                     ", ".join(r["symbol"] for r in top[:10]) + (" ..." if len(top) > 10 else ""))
         return top
 
-    def _is_valid_symbol(self, symbol):
-        """判断 symbol 是否在合法市场中"""
-        if self._markets is None:
-            return symbol in self._client.markets
-        return symbol in {m["symbol"] for m in self._markets}
-
     def fetch_ohlcv(self, symbol, timeframe, limit=200):
         """
         获取 K 线数据，返回 DataFrame: [timestamp, open, high, low, close, volume]
@@ -119,22 +113,3 @@ class ExchangeClient:
         raw = self._client.fetch_ohlcv(symbol, timeframe, limit=limit)
         df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
         return df
-
-    def switch_exchange(self):
-        """主动切换到下一个交易所"""
-        current_idx = self.priority.index(self._active_exchange)
-        remaining = self.priority[current_idx + 1:]
-        if not remaining:
-            return False
-        self._markets = None
-        for exchange_id in remaining:
-            try:
-                client = self._create_client(exchange_id)
-                client.load_markets()
-                self._client = client
-                self._active_exchange = exchange_id
-                logger.info("🔄 已切换到交易所: %s", exchange_id)
-                return True
-            except Exception as e:
-                logger.warning("⚠️ 交易所 %s 连接失败: %s", exchange_id, e)
-        return False

@@ -34,8 +34,9 @@
 ├── core/
 │   ├── exchange_client.py     # 交易所连接层（Binance→Gate→OKX 自动切换）
 │   ├── pattern_detector.py    # K 线形态识别
+│   ├── signal_filters.py      # 信号质量过滤（成交量确认 + K线幅度）
 │   ├── signal_screener.py     # 多周期信号筛选
-│   └── feishu_alert.py        # 飞书报警
+│   └── feishu_alert.py        # 飞书报警（汇总卡片）
 └── logs/
     └── system.log             # 运行日志
 ```
@@ -79,6 +80,8 @@ python main.py
 | `timeframes.level1/2/3` | 三级周期 | `1h / 4h / 8h` |
 | `timeframes.ema` | 各级 EMA 参数 | L1: [7,25], L2: [7], L3: [7] |
 | `schedule.minute` | 每小时触发分钟 | `58` |
+| `signal_filters.volume` | 成交量确认：当根量 ≥ 前20根均量 × 1.5 | 开启 |
+| `signal_filters.range` | K线幅度过滤：当根振幅 ≥ ATR14 × 0.5 | 开启 |
 | `feishu.webhook_url` | 飞书机器人地址 | 空 |
 
 ## 报警去重

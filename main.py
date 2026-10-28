@@ -131,17 +131,6 @@ def run_scan(config, logger):
     return signals
 
 
-def send_signals(feishu, signals, summary_mode=True):
-    """发送信号：汇总模式一条卡片，逐条模式每个信号一张卡片"""
-    if not signals:
-        return
-    if summary_mode:
-        feishu.send_summary(signals)
-    else:
-        for symbol, level, report in signals:
-            feishu.send_level_alert(level, report)
-
-
 def main():
     parser = argparse.ArgumentParser(description="多周期确认系统提醒")
     parser.add_argument("--once", action="store_true", help="立即扫描一次后退出")
@@ -157,8 +146,6 @@ def main():
     if not feishu.enabled:
         logger.warning("⚠️ 飞书 Webhook 未配置！请在 config.yaml 的 feishu.webhook_url 配置，")
         logger.warning("   或设置环境变量 FEISHU_WEBHOOK_URL")
-    # 汇总模式：一轮扫描的分类信号合并成一张卡片（默认开启，减少消息打扰）
-    summary_mode = config.get("feishu", {}).get("summary_mode", True)
     counter = AlertCounter()
 
     scan_minute = config["schedule"]["minute"]
@@ -169,9 +156,9 @@ def main():
         signals = run_scan(config, logger)
         for symbol, level, report in signals:
             report["alert_count"] = counter.next_count(symbol, report["direction"])
-        send_signals(feishu, signals, summary_mode)
-        logger.info("🏁 测试扫描结束，共 %d 个信号（%s），日志: %s",
-                    len(signals), "汇总模式" if summary_mode else "逐条模式", log_file)
+        if signals:
+            feishu.send_summary(signals)
+        logger.info("🏁 测试扫描结束，共 %d 个信号，日志: %s", len(signals), log_file)
         return
 
     # 持续运行
@@ -195,7 +182,7 @@ def main():
             counter.clear_after_scan(active_keys)
             # 有信号就发汇总卡片（不去重，交易对后标注第几次报警）
             if signals:
-                send_signals(feishu, signals, summary_mode)
+                feishu.send_summary(signals)
             else:
                 logger.info("😴 本轮无信号")
         except KeyboardInterrupt:

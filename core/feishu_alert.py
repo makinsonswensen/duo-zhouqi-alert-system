@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 feishu_alert.py - 飞书机器人报警
-支持两种发送模式:
-  汇总模式（默认）: 一轮扫描的所有信号按逻辑来源分类，合并成一张卡片发送
-  逐条模式: 每个信号单独一张卡片（旧模式，信号多时较吵）
+汇总模式：一轮扫描的所有信号按逻辑来源分类，合并成一张卡片发送
 """
 import json
 import logging
@@ -13,13 +11,6 @@ from datetime import datetime
 import requests
 
 logger = logging.getLogger("feishu")
-
-# 报警级别 → 卡片模板颜色 / 标题
-LEVEL_STYLE = {
-    1: {"template": "orange",  "title": "普通报警 · 1h 信号确认"},
-    2: {"template": "red",     "title": "强烈报警 · 双周期共振 / 直接周期信号"},
-    3: {"template": "carmine", "title": "剧烈报警 · 1h+4h+8h 三周期共振"},
-}
 
 # 方向 → 展示（红涨绿跌，国内惯例）
 DIR_DISPLAY = {
@@ -152,7 +143,6 @@ class FeishuAlert:
         """构造分类汇总卡片"""
         groups = self._classify(signals)
         max_level = max(lvl for _, lvl, _ in signals)
-        style = LEVEL_STYLE.get(max_level, LEVEL_STYLE[1])
         exchange = signals[0][2].get("exchange", "")
         n = len(signals)
 
@@ -221,73 +211,6 @@ class FeishuAlert:
         elements.append({
             "tag": "note",
             "elements": [{"tag": "plain_text", "content": note}],
-        })
-
-        return {
-            "msg_type": "interactive",
-            "card": {
-                "config": {"wide_screen_mode": True},
-                "header": {
-                    "title": {"tag": "plain_text", "content": title},
-                    "template": template,
-                },
-                "elements": elements,
-            },
-        }
-
-    # ============ 逐条模式（旧模式，保留兼容） ============
-
-    def send_level_alert(self, level, signal):
-        """发送指定级别的报警卡片（逐条模式）"""
-        if level not in LEVEL_STYLE:
-            return False
-        style = LEVEL_STYLE[level]
-        payload = self._build_card(style["template"], style["title"], level, signal)
-        return self._post(payload)
-
-    def _build_card(self, template, title, level, signal):
-        """构造飞书卡片消息"""
-        direction = signal.get("direction_label", "")
-        symbol = signal.get("symbol", "")
-        source = signal.get("source", "阶梯确认")
-
-        elements = [
-            {
-                "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": f"**交易对：** {symbol}\n**方向：** {direction}\n"
-                               f"**信号来源：** {source}\n**来源交易所：** {signal.get('exchange', '未知')}"
-                },
-            },
-            {"tag": "hr"},
-        ]
-
-        # 各周期详情（支持阶梯和直接两种报告格式）
-        level_order = ["1h", "4h", "8h"]
-        for tf in level_order:
-            if tf in signal.get("levels", {}):
-                info = signal["levels"][tf]
-                patterns_str = "、".join(info["patterns"]) if info["patterns"] else "-"
-                ema_str = "，".join(f"EMA{p}={v:.2f}" for p, v in info["ema"].items())
-                close = info.get("close")
-                close_str = f"{close:.2f}" if close is not None else "-"
-                elements.append({
-                    "tag": "div",
-                    "text": {
-                        "tag": "lark_md",
-                        "content": f"**{tf} 周期：**\n形态：{patterns_str}\n"
-                                   f"收盘：{close_str}\n{ema_str}"
-                    },
-                })
-
-        elements.append({"tag": "hr"})
-        elements.append({
-            "tag": "note",
-            "elements": [{
-                "tag": "plain_text",
-                "content": "多周期确认系统提醒 · 信号仅作参考，不构成投资建议",
-            }],
         })
 
         return {

@@ -12,6 +12,7 @@ signal_screener.py - 多周期信号筛选器
 """
 import logging
 from core.pattern_detector import detect_patterns, compute_ema, compute_ema_slope
+from core.signal_filters import apply_signal_filters
 
 logger = logging.getLogger("screener")
 
@@ -21,10 +22,11 @@ DIR_DOWN = "down"  # 空头
 DIR_LABEL = {DIR_UP: "多头(向上)", DIR_DOWN: "空头(向下)"}
 
 
-def check_level(df, ema_periods, direction, filters=None):
+def check_level(df, ema_periods, direction, filters=None, sig_filters=None):
     """
     检查单一周期是否满足: 形态 + 收盘在EMA上方/下方
     filters: 可选的过滤配置 dict（EMA排列、EMA斜率等）
+    sig_filters: 可选的信号质量过滤配置（成交量/K线幅度），只用于信号入口级
     返回 dict {confirmed, patterns, ema_ok, close, ema_values, filters_detail}
     """
     if df is None or len(df) < 3:
@@ -56,9 +58,18 @@ def check_level(df, ema_periods, direction, filters=None):
 
     confirmed = ema_ok and len(matched) > 0
 
+    filters_detail = {}
+
+    # --- 信号质量过滤（成交量 / K线幅度），只加在信号入口级 ---
+    if confirmed and sig_filters:
+        sf_ok, sf_detail = apply_signal_filters(df, sig_filters)
+        filters_detail.update(sf_detail)
+        if not sf_ok:
+            confirmed = False
+            filters_detail["sig_filtered"] = True
+
     # --- 1h 过滤器 ---
     filters = filters or {}
-    filters_detail = {}
 
     # ① EMA 排列过滤：多头 EMA7 > EMA25，空头 EMA7 < EMA25
     if confirmed and filters.get("ema_alignment") and len(ema_periods) >= 2:
@@ -95,22 +106,25 @@ def check_level(df, ema_periods, direction, filters=None):
     }
 
 
-def check_direct_level(df, direction):
+def check_direct_level(df, direction, sig_filters=None):
     """
     直接周期检测（不依赖前序周期确认）:
     - 形态识别（同方向）
     - 收盘在 EMA7 之上(多)/之下(空)
     - EMA7 > EMA25 (多) / EMA7 < EMA25 (空)
+    - 信号质量过滤（成交量/K线幅度，可选）
 
-    返回 dict {confirmed, patterns, close, ema_values}
+    返回 dict {confirmed, patterns, close, ema_values, filters_detail}
     """
     if df is None or len(df) < 3:
-        return {"confirmed": False, "patterns": [], "close": None, "ema_values": {}}
+        return {"confirmed": False, "patterns": [], "close": None, "ema_values": {},
+                "filters_detail": {}}
 
     patterns = detect_patterns(df)
     matched = [p for p in patterns if p["direction"] == direction]
     if not matched:
-        return {"confirmed": False, "patterns": [], "close": None, "ema_values": {}}
+        return {"confirmed": False, "patterns": [], "close": None, "ema_values": {},
+                "filters_detail": {}}
 
     close_series = df["close"]
     ema7 = float(compute_ema(close_series, 7).iloc[-1])
@@ -124,11 +138,20 @@ def check_direct_level(df, direction):
         # 空头：收盘在EMA7之下 且 EMA7 < EMA25
         confirmed = close < ema7 and ema7 < ema25
 
+    # --- 信号质量过滤（成交量 / K线幅度）---
+    filters_detail = {}
+    if confirmed and sig_filters:
+        sf_ok, filters_detail = apply_signal_filters(df, sig_filters)
+        if not sf_ok:
+            confirmed = False
+            filters_detail["sig_filtered"] = True
+
     return {
         "confirmed": confirmed,
         "patterns": matched,
         "close": close,
         "ema_values": {7: ema7, 25: ema25},
+        "filters_detail": filters_detail,
     }
 
 
@@ -147,12 +170,20 @@ class SignalScreener:
         self.ohlcv_limit = config["ohlcv"]["limit"]
         # 1h 过滤器配置
         self.filters = config.get("filters", {})
+        # 信号质量过滤（成交量/K线幅度），作用于阶梯1h入口与直接4h/8h路径
+        self.sig_filters = config.get("signal_filters", {})
+        self.filtered_count = 0   # 本轮被质量过滤器拦截的信号数
         # 直接筛选配置
         ds = config.get("direct_screening", {})
         self.direct_4h_enabled = ds.get("enable_4h", True)
         self.direct_8h_enabled = ds.get("enable_8h", True)
         self.direct_4h_level = ds.get("alert_level_4h", 2)
         self.direct_8h_level = ds.get("alert_level_8h", 2)
+
+    def _count_filtered(self, result):
+        """统计被信号质量过滤器拦截的潜在信号"""
+        if not result["confirmed"] and result.get("filters_detail", {}).get("sig_filtered"):
+            self.filtered_count += 1
 
     def scan_symbol(self, symbol):
         """
@@ -174,7 +205,9 @@ class SignalScreener:
 
         # ===== 路径A：阶梯确认（1h → 4h → 8h）=====
         for direction in (DIR_UP, DIR_DOWN):
-            r1 = check_level(df1, self.ema_l1, direction, filters=self.filters)
+            r1 = check_level(df1, self.ema_l1, direction,
+                             filters=self.filters, sig_filters=self.sig_filters)
+            self._count_filtered(r1)
             if not r1["confirmed"]:
                 continue
 
@@ -222,7 +255,8 @@ class SignalScreener:
                     df2 = None
             if df2 is not None:
                 for direction in (DIR_UP, DIR_DOWN):
-                    r = check_direct_level(df2, direction)
+                    r = check_direct_level(df2, direction, sig_filters=self.sig_filters)
+                    self._count_filtered(r)
                     if r["confirmed"]:
                         signals.append((self.direct_4h_level,
                                         self._build_direct_report(symbol, direction, r, "直接4h")))
@@ -238,7 +272,8 @@ class SignalScreener:
                     df3 = None
             if df3 is not None:
                 for direction in (DIR_UP, DIR_DOWN):
-                    r = check_direct_level(df3, direction)
+                    r = check_direct_level(df3, direction, sig_filters=self.sig_filters)
+                    self._count_filtered(r)
                     if r["confirmed"]:
                         signals.append((self.direct_8h_level,
                                         self._build_direct_report(symbol, direction, r, "直接8h")))
@@ -301,9 +336,12 @@ class SignalScreener:
 
     def scan_all(self, top_symbols):
         """扫描所有交易对，返回 [(symbol, level, report), ...]"""
+        self.filtered_count = 0
         results = []
         for item in top_symbols:
             symbol = item["symbol"]
             for level, report in self.scan_symbol(symbol):
                 results.append((symbol, level, report))
+        if self.filtered_count:
+            logger.info("🧹 信号质量过滤器拦截 %d 个低质量信号", self.filtered_count)
         return results

@@ -27,7 +27,6 @@ PATTERNS = {
     "bearish_harami":     {"name": "空头孕线",     "direction": "down", "candles": 2},
 }
 
-BODY_RATIO = 0.3      # 实体占比阈值（相对整根K线幅度）
 SHADOW_RATIO = 2.0    # 影线与实体长度比
 DOJI_RATIO = 0.15     # 小实体（星线）相对幅度
 
