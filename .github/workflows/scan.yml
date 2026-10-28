@@ -35,3 +35,21 @@ jobs:
 
       - name: 执行扫描
         run: python main.py --once
+
+      - name: 失败告警
+        # 任一步骤失败时发一条飞书文本消息，避免定时任务静默停止无人察觉
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "⚠️ 未配置 FEISHU_WEBHOOK_URL，跳过失败告警"
+            exit 0
+          fi
+          TEXT="⚠️ 多周期扫描运行失败\n时间: $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')\n仓库: $REPO\n查看日志: $RUN_URL"
+          curl -s -X POST "$WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "{\"msg_type\":\"text\",\"content\":{\"text\":\"$TEXT\"}}"
+          echo "✅ 失败告警已发送"
