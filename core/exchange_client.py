@@ -83,20 +83,28 @@ class ExchangeClient:
         valid_symbols = {m["symbol"] for m in valid_markets}
 
         try:
-            tickers = self._client.fetch_tickers()
+            # 显式传入目标 symbol 列表：OKX 不传参数时默认拉现货 ticker，
+            # symbol 对不上合约市场集合会导致结果为空
+            tickers = self._client.fetch_tickers(sorted(valid_symbols))
         except Exception as e:
             raise ConnectionError(f"获取 tickers 失败: {e}")
 
         records = []
         for symbol, t in tickers.items():
-            if t.get("quoteVolume") is None:
-                continue
             if symbol not in valid_symbols:
                 continue
+            qv = t.get("quoteVolume")
+            last = t.get("last")
+            # OKX 的 ticker 无 quoteVolume，用 baseVolume × 最新价 估算成交额
+            if qv is None:
+                bv = t.get("baseVolume")
+                if bv is None or not last:
+                    continue
+                qv = float(bv) * float(last)
             records.append({
                 "symbol": symbol,
-                "quoteVolume": float(t["quoteVolume"]),
-                "last": t.get("last"),
+                "quoteVolume": float(qv),
+                "last": last,
             })
 
         records.sort(key=lambda x: x["quoteVolume"], reverse=True)
