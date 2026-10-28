@@ -1,10 +1,13 @@
-# GitHub Actions 定时扫描：每小时第 58 分触发一次扫描（替代本地常驻进程）
+# GitHub Actions 定时扫描
+# GitHub 的 cron 在高峰期会被延迟甚至直接丢弃（整点前后尤甚），
+# 因此改为每 5 分钟触发一次，由 main.py 判断是否处于扫描窗口（--window），
+# 并用 --state-dir 做同一根K线去重，保证每小时只真正扫描一次且不漏轮。
 # 手动测试：Actions 页面 → 多周期扫描 → Run workflow
 name: 多周期扫描
 
 on:
   schedule:
-    - cron: "58 * * * *"   # 每小时 :58（UTC，与本地扫描逻辑一致：只看已收盘K线）
+    - cron: "*/5 * * * *"   # 每 5 分钟；窗口外的触发会秒退，不产生信号
   workflow_dispatch:         # 支持手动触发测试
 
 concurrency:
@@ -21,6 +24,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 计算本轮K线标识
+        id: slot
+        # 逻辑需与 main.py 的 resolve_scan_slot 保持一致：
+        # 58 分及之后属于本小时K线，之前（已跨整点补扫）属于上一小时K线
+        run: |
+          MIN=$(TZ=Asia/Shanghai date +%M)
+          if [ "$MIN" -ge 58 ]; then
+            SLOT=$(TZ=Asia/Shanghai date +%Y%m%d%H)
+          else
+            SLOT=$(TZ=Asia/Shanghai date -d '-1 hour' +%Y%m%d%H)
+          fi
+          echo "slot=$SLOT" >> $GITHUB_OUTPUT
+
+      - name: 恢复扫描状态
+        # 同一根K线的状态在各次触发间共享，命中缓存即说明该K线已扫过
+        uses: actions/cache@v4
+        with:
+          path: .scan_state
+          key: scan-state-${{ steps.slot.outputs.slot }}
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -34,7 +57,7 @@ jobs:
         run: cp config.example.yaml config.yaml
 
       - name: 执行扫描
-        run: python main.py --once
+        run: python main.py --once --window 12 --state-dir .scan_state
 
       - name: 失败告警
         # 任一步骤失败时发一条飞书文本消息，避免定时任务静默停止无人察觉

@@ -69,7 +69,25 @@ python main.py --once
 
 # 持续运行：每小时第 58 分钟自动扫描
 python main.py
+
+# 定时兜底模式（GitHub Actions 使用）：仅在扫描窗口内执行，同一根K线只扫一次
+python main.py --once --window 12 --state-dir .scan_state
 ```
+
+## 云端部署（GitHub Actions）
+
+`.github/workflows/scan.yml` 已配置好，仓库 Secrets 里加 `FEISHU_WEBHOOK_URL` 即可。
+
+GitHub 的定时任务在高峰期会被延迟甚至直接丢弃，单靠 `58 * * * *` 实测漏跑率很高。
+因此改为 **每 5 分钟触发一次 + 窗口判断 + 状态去重**：
+
+| 时刻（北京时间） | 行为 |
+|-----------------|------|
+| 58~59 分 | 命中窗口，扫描当前未收盘 K 线（收盘前预警） |
+| 整点后 0~9 分 | 命中窗口，补扫刚收盘的 K 线（丢弃刚开盘的无效K线） |
+| 其余时间 | 秒退，不消耗算力 |
+
+同一根 1h K 线由 `--state-dir` + Actions 缓存去重，无论触发几次都只扫描、报警一次。
 
 ## 配置说明（config.yaml）
 

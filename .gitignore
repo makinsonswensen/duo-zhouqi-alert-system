@@ -12,6 +12,9 @@ venv/
 logs/
 *.log
 
+# 扫描状态（GitHub Actions 用缓存保存，本地无需入库）
+.scan_state/
+
 # WorkBuddy 项目数据（不要上传）
 .workbuddy/
 

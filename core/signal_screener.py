@@ -158,9 +158,11 @@ def check_direct_level(df, direction, sig_filters=None):
 class SignalScreener:
     """多周期信号筛选器（阶梯确认 + 直接4h/8h筛选）"""
 
-    def __init__(self, config, exchange_client):
+    def __init__(self, config, exchange_client, drop_last=False):
         self.config = config
         self.ex = exchange_client
+        # 补扫模式：丢弃刚开盘的最后一根K线，改用刚收盘的那根
+        self.drop_last = drop_last
         self.tf_level1 = config["timeframes"]["level1"]
         self.tf_level2 = config["timeframes"]["level2"]
         self.tf_level3 = config["timeframes"]["level3"]
@@ -185,6 +187,11 @@ class SignalScreener:
         if not result["confirmed"] and result.get("filters_detail", {}).get("sig_filtered"):
             self.filtered_count += 1
 
+    def _fetch(self, symbol, timeframe):
+        """拉取K线；补扫模式下丢弃刚开盘的最后一根，改用刚收盘的那根"""
+        df = self.ex.fetch_ohlcv(symbol, timeframe, self.ohlcv_limit)
+        return df.iloc[:-1] if self.drop_last else df
+
     def scan_symbol(self, symbol):
         """
         扫描单个交易对，返回信号列表 [(level, report), ...]
@@ -194,7 +201,7 @@ class SignalScreener:
 
         # ---- 拉取 1h 数据 ----
         try:
-            df1 = self.ex.fetch_ohlcv(symbol, self.tf_level1, self.ohlcv_limit)
+            df1 = self._fetch(symbol, self.tf_level1)
         except Exception as e:
             logger.warning("⚠️ %s 获取 %s 失败: %s", self.ex.active_exchange, symbol, e)
             return signals
@@ -214,7 +221,7 @@ class SignalScreener:
             # 1h 成立 → 拉 4h
             if df2 is None:
                 try:
-                    df2 = self.ex.fetch_ohlcv(symbol, self.tf_level2, self.ohlcv_limit)
+                    df2 = self._fetch(symbol, self.tf_level2)
                 except Exception as e:
                     logger.warning("⚠️ %s 获取 %s %s 失败: %s", self.ex.active_exchange,
                                    symbol, self.tf_level2, e)
@@ -229,7 +236,7 @@ class SignalScreener:
             # 4h 成立 → 拉 8h
             if df3 is None:
                 try:
-                    df3 = self.ex.fetch_ohlcv(symbol, self.tf_level3, self.ohlcv_limit)
+                    df3 = self._fetch(symbol, self.tf_level3)
                 except Exception as e:
                     logger.warning("⚠️ %s 获取 %s %s 失败: %s", self.ex.active_exchange,
                                    symbol, self.tf_level3, e)
@@ -248,7 +255,7 @@ class SignalScreener:
         if self.direct_4h_enabled:
             if df2 is None:
                 try:
-                    df2 = self.ex.fetch_ohlcv(symbol, self.tf_level2, self.ohlcv_limit)
+                    df2 = self._fetch(symbol, self.tf_level2)
                 except Exception as e:
                     logger.warning("⚠️ 直接4h 获取 %s %s 失败: %s",
                                    symbol, self.tf_level2, e)
@@ -265,7 +272,7 @@ class SignalScreener:
         if self.direct_8h_enabled:
             if df3 is None:
                 try:
-                    df3 = self.ex.fetch_ohlcv(symbol, self.tf_level3, self.ohlcv_limit)
+                    df3 = self._fetch(symbol, self.tf_level3)
                 except Exception as e:
                     logger.warning("⚠️ 直接8h 获取 %s %s 失败: %s",
                                    symbol, self.tf_level3, e)
